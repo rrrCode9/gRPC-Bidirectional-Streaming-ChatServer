@@ -15,9 +15,8 @@ type messageUnit struct {
 }
 
 type messageHandle struct {
-	MQue        []messageUnit
-	clientCount int
-	mu          sync.Mutex
+	MQue []messageUnit
+	mu   sync.Mutex
 }
 
 var messageHandleObject = messageHandle{}
@@ -25,68 +24,91 @@ var messageHandleObject = messageHandle{}
 type ChatServer struct {
 }
 
-// ChatService
+//define ChatService
 func (is *ChatServer) ChatService(csi Services_ChatServiceServer) error {
 
-	clientUniqueCode := rand.Intn(1e3)
-
-	// recieve request <<< client
-	go recieveFromStream(csi, clientUniqueCode)
-	//stream >>> client
+	clientUniqueCode := rand.Intn(1e6)
 	errch := make(chan error)
+
+	// receive messages - init a go routine
+	go receiveFromStream(csi, clientUniqueCode, errch)
+
+	// send messages - init a go routine
 	go sendToStream(csi, clientUniqueCode, errch)
 
 	return <-errch
+
 }
 
-// recieve from stream
-func recieveFromStream(csi_ Services_ChatServiceServer, clientUniqueCode_ int) {
+//receive messages
+func receiveFromStream(csi_ Services_ChatServiceServer, clientUniqueCode_ int, errch_ chan error) {
 
+	//implement a loop
 	for {
-		req, err := csi_.Recv()
+		mssg, err := csi_.Recv()
 		if err != nil {
-			log.Printf("Error reciving request from client :: %v", err)
-			break
-
+			log.Printf("Error in receiving message from client :: %v", err)
+			errch_ <- err
 		} else {
+
 			messageHandleObject.mu.Lock()
-			messageHandleObject.MQue = append(messageHandleObject.MQue, messageUnit{ClientName: req.Name, MessageBody: req.Body, MessageUniqueCode: rand.Intn(1e8), ClientUniqueCode: clientUniqueCode_})
+
+			messageHandleObject.MQue = append(messageHandleObject.MQue, messageUnit{
+				ClientName:        mssg.Name,
+				MessageBody:       mssg.Body,
+				MessageUniqueCode: rand.Intn(1e8),
+				ClientUniqueCode:  clientUniqueCode_,
+			})
+
 			messageHandleObject.mu.Unlock()
+
 			log.Printf("%v", messageHandleObject.MQue[len(messageHandleObject.MQue)-1])
+
 		}
-
 	}
-
 }
 
-//send to stream
+//send message
 func sendToStream(csi_ Services_ChatServiceServer, clientUniqueCode_ int, errch_ chan error) {
 
+	//implement a loop
 	for {
 
+		//loop through messages in MQue
 		for {
+
 			time.Sleep(500 * time.Millisecond)
+
 			messageHandleObject.mu.Lock()
+
 			if len(messageHandleObject.MQue) == 0 {
 				messageHandleObject.mu.Unlock()
 				break
 			}
+
 			senderUniqueCode := messageHandleObject.MQue[0].ClientUniqueCode
-			senderName4client := messageHandleObject.MQue[0].ClientName
-			message4client := messageHandleObject.MQue[0].MessageBody
+			senderName4Client := messageHandleObject.MQue[0].ClientName
+			message4Client := messageHandleObject.MQue[0].MessageBody
+
 			messageHandleObject.mu.Unlock()
+
+			//send message to designated client (do not send to the same client)
 			if senderUniqueCode != clientUniqueCode_ {
-				err := csi_.Send(&FromServer{Name: senderName4client, Body: message4client})
+
+				err := csi_.Send(&FromServer{Name: senderName4Client, Body: message4Client})
 
 				if err != nil {
 					errch_ <- err
 				}
+
 				messageHandleObject.mu.Lock()
-				if len(messageHandleObject.MQue) >= 2 {
-					messageHandleObject.MQue = messageHandleObject.MQue[1:] // if send success > delete message
+
+				if len(messageHandleObject.MQue) > 1 {
+					messageHandleObject.MQue = messageHandleObject.MQue[1:] // delete the message at index 0 after sending to receiver
 				} else {
 					messageHandleObject.MQue = []messageUnit{}
 				}
+
 				messageHandleObject.mu.Unlock()
 
 			}
@@ -94,7 +116,5 @@ func sendToStream(csi_ Services_ChatServiceServer, clientUniqueCode_ int, errch_
 		}
 
 		time.Sleep(100 * time.Millisecond)
-
 	}
-
 }
