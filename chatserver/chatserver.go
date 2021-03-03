@@ -59,10 +59,12 @@ func receiveFromStream(csi_ Services_ChatServiceServer, clientUniqueCode_ int, e
 				MessageUniqueCode: rand.Intn(1e8),
 				ClientUniqueCode:  clientUniqueCode_,
 			})
-
+			
+			log.Printf("%v", messageHandleObject.MQue[len(messageHandleObject.MQue)-1])
+			
 			messageHandleObject.mu.Unlock()
 
-			log.Printf("%v", messageHandleObject.MQue[len(messageHandleObject.MQue)-1])
+			
 
 		}
 	}
